@@ -24,7 +24,7 @@ struct Settings {
     .variant = NULL,
     .options = NULL,
     };
-
+    bool only_arguments = false;
     const char * input_conf = NULL;
     const char * xkb_conf_output = NULL;
     const char * evdoublebind_conf_output = NULL;
@@ -282,6 +282,90 @@ struct ConfigParser {
     }
 };
 
+void generate_xkb_file(xkb_keymap *keymap, Config &config, Settings &settings) {
+    FILE * xkbfile;
+    if (settings.xkb_conf_output == NULL) {
+        char buf[1024];
+        system("mkdir -p $HOME/.xkb/symbols/");
+        int len = snprintf(buf,1024, "%s/.xkb/symbols/evdoublebind", getenv("HOME"));
+        if (len >= 1023) {
+            fprintf(stderr,"WOW, your home path is really long, CRITICAL ERROR");
+            fprintf(stderr,"You should specify the xkb conf output manually");
+            exit(1);
+        }
+        fprintf(stderr,"Outputing XKB option to: %s\n", buf);
+        xkbfile = fopen(buf, "w");
+    } else {
+        fprintf(stderr,"Outputing XKB option to: %s\n", settings.xkb_conf_output);
+        xkbfile = fopen(settings.xkb_conf_output, "w");
+    }
+    if (xkbfile == NULL) {
+        perror("Failed Creating xkb config file: ");
+        exit(1);
+    }
+
+    auto unused = config.unused_keys.begin();
+
+     fprintf(xkbfile,"partial modifier_keys\n");
+     fprintf(xkbfile,"xkb_symbols \"mapping\" {\n");
+     for (auto & mapping: config.mappings) {
+         const char * keyname = xkb_keymap_key_get_name(keymap, mapping.keycode + 8);
+         fprintf(xkbfile,"   replace key <%s> { [ ",  keyname);
+         print_keysyms(xkbfile,mapping.hold_map);
+         fprintf(xkbfile," ] };\n");
+         if (mapping.tap_map[0] != NULL) {
+             if (unused == config.unused_keys.end()) {
+                 fprintf(stderr,"ERROR: not enough unused keys specified for config\n");
+                 exit(1);
+             }
+             const char * tapkeyname = xkb_keymap_key_get_name(keymap, *unused);
+             fprintf(xkbfile,"   replace key <%s> { [ ",  tapkeyname);
+             print_keysyms(xkbfile,mapping.tap_map);
+             fprintf(xkbfile," ] };\n");
+             unused++;
+         }
+         generate_modifier_mapping(xkbfile, keyname, mapping.hold_map);
+         fprintf(xkbfile,"\n");
+     }
+     fprintf(xkbfile,"};\n");
+     fclose(xkbfile);
+}
+
+void generate_hfile(Config &config, Settings &settings) {
+     FILE * hfile;
+     if (settings.evdoublebind_conf_output == NULL) {
+         hfile = stdout;
+     } else {
+         hfile = fopen(settings.evdoublebind_conf_output, "w");
+     }
+     if (hfile == NULL) {
+         perror("Failed Creating xkb config file: ");
+     }
+     for (auto &kbd : config.keyboards){
+         fprintf(hfile,"%s ", kbd);
+         auto unused = config.unused_keys.begin();
+         for (auto & mapping: config.mappings) {
+             if (mapping.tap_map[0] != NULL) {
+                 if (unused == config.unused_keys.end()) {
+                     fprintf(stderr,"ERROR: not enough unused keys specified for config\n");
+                     exit(1);
+                 }
+                 if (unused != config.unused_keys.begin()) {
+                     fprintf(hfile,",");
+                 }
+                 fprintf(hfile,"%d:%d", mapping.keycode, *unused - 8);
+                 unused++;
+             }
+         }
+         fprintf(hfile,"\n");
+     }
+     if (settings.evdoublebind_conf_output != NULL) {
+         fclose(hfile); //don't close stdout
+     } else {
+         fflush(stdout);
+     }
+}
+
 
 int gen(Settings &settings) {
     char * buffer = file_contents(settings.input_conf);
@@ -330,80 +414,15 @@ int gen(Settings &settings) {
             }
         }
     }
-     auto unused = config.unused_keys.begin();
-     FILE * xkbfile;
-     if (settings.xkb_conf_output == NULL) {
-         char buf[1024];
-         system("mkdir -p $HOME/.xkb/symbols/");
-         int len = snprintf(buf,1024, "%s/.xkb/symbols/evdoublebind", getenv("HOME"));
-         if (len >= 1023) {
-             fprintf(stderr,"WOW, your home path is really long, CRITICAL ERROR");
-             fprintf(stderr,"You should specify the xkb conf output manually");
-             exit(1);
-         }
-         fprintf(stderr,"Outputing XKB option to: %s\n", buf);
-         xkbfile = fopen(buf, "w");
-     } else {
-         fprintf(stderr,"Outputing XKB option to: %s\n", settings.xkb_conf_output);
-         xkbfile = fopen(settings.xkb_conf_output, "w");
-     }
-     if (xkbfile == NULL) {
-         perror("Failed Creating xkb config file: ");
-     }
+    generate_hfile(config,settings);
+    if (!settings.only_arguments) {
+        generate_xkb_file(keymap,config, settings);
+    }
+    free(buffer);
 
-     FILE * hfile;
-     if (settings.evdoublebind_conf_output == NULL) {
-         fprintf(stderr,"WARN: <evdoublebind_instance_conf_output> is NULL, outputting to stdout.\n");
-         hfile = stdout;
-     } else {
-         hfile = fopen(settings.evdoublebind_conf_output, "w");
-     }
-     if (hfile == NULL) {
-         perror("Failed Creating xkb config file: ");
-     }
-
-     fprintf(xkbfile,"partial modifier_keys\n");
-     fprintf(xkbfile,"xkb_symbols \"mapping\" {\n");
-     for (auto & mapping: config.mappings) {
-         const char * keyname = xkb_keymap_key_get_name(keymap, mapping.keycode + 8);
-         fprintf(xkbfile,"   replace key <%s> { [ ",  keyname);
-         print_keysyms(xkbfile,mapping.hold_map);
-         fprintf(xkbfile," ] };\n");
-         if (mapping.tap_map[0] != NULL) {
-             if (unused == config.unused_keys.end()) {
-                 fprintf(stderr,"ERROR: not enough unused keys specified for config\n");
-                 exit(1);
-             }
-             if (unused != config.unused_keys.begin()) {
-                 fprintf(hfile,",");
-             }
-             fprintf(hfile,"%d:%d", mapping.keycode, *unused - 8);
-             const char * tapkeyname = xkb_keymap_key_get_name(keymap, *unused);
-             fprintf(xkbfile,"   replace key <%s> { [ ",  tapkeyname);
-             print_keysyms(xkbfile,mapping.tap_map);
-             fprintf(xkbfile," ] };\n");
-             unused++;
-         }
-         generate_modifier_mapping(xkbfile, keyname, mapping.hold_map);
-         fprintf(xkbfile,"\n");
-     }
-     fprintf(hfile,"\n");
-     for (auto &kbd : config.keyboards){
-         fprintf(hfile,"%s\n", kbd);
-     }
-     fprintf(xkbfile,"};\n");
-     fclose(xkbfile);
-
-     if (settings.evdoublebind_conf_output != NULL) {
-         fclose(hfile); //don't close stdout
-     } else {
-         fflush(stdout);
-     }
-     free(buffer);
-
-     xkb_state_unref(state);
-     xkb_keymap_unref(keymap);
-     xkb_context_unref(ctx);
+    xkb_state_unref(state);
+    xkb_keymap_unref(keymap);
+    xkb_context_unref(ctx);
     return 0;
 }
 
@@ -430,7 +449,9 @@ kbd : /dev/input/by-id/usb-Logitech_Logitech_G710_Keyboard-event-kbd
 ---
 
 Options:
-   -c <evdoublebind_instance_conf_output> File path
+   -a                                    Only Generate Argument File
+   (default: STDOUT)
+   -c <evdoublebind_argument_file>       File path
    (default: STDOUT)
    -x <xkb_conf_output>
    (default: '~/.xkb/symbols/evdoublebind')
@@ -452,8 +473,11 @@ Settings parse_arguments(Settings &&setting, int argc, char **argv){
     optind = 0;
     char *cvalue = NULL;
     int c;
-    while ((c = getopt (argc, argv, "hr:m:l:v:o:x:c:")) != -1)
+    while ((c = getopt (argc, argv, "ahr:m:l:v:o:x:c:")) != -1)
         switch(c){
+            case 'a':
+                setting.only_arguments = true;
+                continue;
             case 'h':
                 print_usage();
                 exit(0);

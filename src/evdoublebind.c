@@ -10,39 +10,10 @@
 #define KEY_TIMEOUT_CONFIG 200000
 
 
-typedef struct QuitKeyState {
-    __u16 key;
-    __u16 down;
-} QuitKeyState;
-
 typedef struct KeyBind {
     __u16 key;
     __u16 tap_key;
 } KeyBind;
-
-static QuitKeyState QUITMAP[8] = {};
-static int QUITMAP_LEN = 0;
-void update_quitmap_down(__u16 key) {
-    int all_down = 1;
-    for(int i = 0; i <QUITMAP_LEN; i++) {
-        if (QUITMAP[i].key == key) QUITMAP[i].down = 1;
-        if (!QUITMAP[i].down) all_down = 0;
-    }
-    if (all_down) {
-        exit(0);
-    }
-}
-
-void update_quitmap_up(__u16 key) {
-    int all_down = 1;
-    for(int i = 0; i <QUITMAP_LEN; i++) {
-        if (QUITMAP[i].key == key) QUITMAP[i].down = 1;
-        if (!QUITMAP[i].down) all_down = 0;
-    }
-    if (all_down) {
-        exit(0);
-    }
-}
 
 static KeyBind KEYMAP[64] = {};
 static int  KEYMAP_LEN = 0;
@@ -150,67 +121,17 @@ void map_events(int fd){
         }
     }
 }
-char * file_contents( const char *path) {
-    int fd = open(path, O_RDONLY);
-    if (fd == -1) return NULL;
-    int offset = lseek(fd, 0, SEEK_END);
-    if (offset < 1) {
-        close(fd);
-        return NULL;
-    }
-    lseek(fd, 0, SEEK_SET);
-    char * buffer = (char*) malloc(offset + 1);
-    read(fd, buffer, offset);
-    buffer[offset] = '\0';
-    close(fd);
-    return buffer;
-}
-
-int parse_config(char* conf) {
-    char * config = file_contents(conf); //we leek this never cleaning it up
-    if (!config){
-        perror("Failed to access config\n");
-        exit(1);
-    }
-    char *c = config;
-    while (*c && *c != '\n') c++;
-    if (*c == '\0') {
-        exit(1);
-//        printf("NO FILES FOUND IN CONFIG");
-    }
-    *c = '\0';
-    int found = parse_keymap(config);
-    //   printf("%d Mappings Found\n", found);
-    int done = 0;
-    while (!done) {
-        config = c + 1;
-        c++;
-        while (*c && *c != '\n') c++;
-        if (*c == '\0') done = 1;
-        *c = '\0';
-        if (access(config, R_OK|W_OK) != -1){
-            //       printf("Acessable %s\n", config);
-            if (fork() == 0) {
-                int fd = open(config, O_RDWR);
-                //   printf("child_opening: %s\n", config);
-//                free(config);
-                // printf("hellp\n");
-                return fd;
-            }
-        }
-    }
-    return -1;
-}
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
+    if (argc < 3) {
         perror("Error: Missing command line argument: config\n");
         perror("Usage Example: \n  ");
         perror(argv[0]);
         perror(" evdoublebind.in\n");
         exit(1);
     };
-    int fd = parse_config(argv[1]);
+    int found = parse_keymap(argv[2]);
+    int fd = open(argv[1],O_RDWR);
     if (fd < 0) {
         exit(0);
     }

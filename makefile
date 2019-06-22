@@ -6,7 +6,7 @@ PREFIX = /usr
 CPPFLAGS += -fno-rtti -fno-exceptions  -fno-threadsafe-statics \
  -pipe -Wconversion-null -O2
 CC = gcc
-CFLAGS += -Os -flto
+CFLAGS += -O3 -flto
 CPP = gcc
 
 all :  $(BUILD_DIR) $(BUILD_DIR)/evdoublebind $(BUILD_DIR)/evdoublebind-inspector $(BUILD_DIR)/evdoublebind-make-config
@@ -39,7 +39,7 @@ uninstall:
 
 .PHONY: musl-static
 
-musl-static: CC = musl-gcc -static
+musl-static: CC = musl-gcc -O3 -static -Wl,-z,noseparate-code
 musl-static: all
 
 .PHONY: clean
