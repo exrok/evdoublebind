@@ -90,7 +90,7 @@ void find_keyboard_in(KeyboardList &keyboards, const char * path) {
         while ((dir = readdir(d)) != NULL) {
             if (kbd_suffix(dir->d_name)) {
                 sprintf(buf,"%s%s",path, dir->d_name);
-                if (realpath(buf, input) < 0) continue;
+                if (realpath(buf, input) == NULL) continue;
                 if (input[11] == 'e') {
                     int event_number = atoi(input + 16);
                     if (!keyboards.contains_event_number(event_number)) {
