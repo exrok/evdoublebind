@@ -210,7 +210,11 @@ char * file_contents( const char *path) {
     }
     lseek(fd, 0, SEEK_SET);
     char * buffer = (char*) malloc(offset + 1);
-    read(fd, buffer, offset);
+    if (read(fd, buffer, offset) < (offset - 1)) {
+        free(buffer);
+        close(fd);
+        return NULL;
+    }
     buffer[offset] = '\0';
     close(fd);
     return buffer;
@@ -281,22 +285,47 @@ struct ConfigParser {
         return false;
     }
 };
+void install_xkb_rule() {
+    fprintf(stderr,"Installing custom rule set to ~/.xkb/rules/evdev-doublebind\n");
+    if (system("mkdir -p $HOME/.xkb/rules") != 0 ) goto error;
+    if (system("cp /usr/share/X11/xkb/rules/evdev.xml $HOME/.xkb/rules/evdev-doublebind.xml")
+        != 0) goto error;
+    if (system("cp /usr/share/X11/xkb/rules/evdev.lst $HOME/.xkb/rules/evdev-doublebind.lst")
+        != 0) goto error;
+    if (system("sed 's/!\\s*option\\s*=\\s*symbols/! option	=	symbols\\n\
+  evdoublebind:mapping = +evdoublebind(mapping)/g' /usr/share/X11/xkb/rules/evdev\
+ > $HOME/.xkb/rules/evdev-doublebind") != 0) goto error;
+    return;
+error:
+    fprintf(stderr,"Failed to install XKB rules set\n");
+    exit(1);
+}
 
 void generate_xkb_file(xkb_keymap *keymap, Config &config, Settings &settings) {
     FILE * xkbfile;
     if (settings.xkb_conf_output == NULL) {
         char buf[1024];
-        system("mkdir -p $HOME/.xkb/symbols/");
-        int len = snprintf(buf,1024, "%s/.xkb/symbols/evdoublebind", getenv("HOME"));
+        if (system("mkdir -p $HOME/.xkb/symbols/") != 0) {
+            fprintf(stderr,"Failed creating $HOME/.xkb/symbols/");
+            exit(1);
+        }
+        int len = snprintf(buf,1024, "%s/.xkb/rules/evdev-doublebind", getenv("HOME"));
         if (len >= 1023) {
             fprintf(stderr,"WOW, your home path is really long, CRITICAL ERROR");
             fprintf(stderr,"You should specify the xkb conf output manually");
             exit(1);
         }
-        fprintf(stderr,"Outputing XKB option to: %s\n", buf);
+        if (access(buf, F_OK) == -1) {
+            fprintf(stderr, "Warning: ~/.xkb/rules/evdev-doublebind is missing. To use the XKB\n");
+            fprintf(stderr, "        option 'evdoublebind:mapping' a custom rule set is needed.\n");
+            fprintf(stderr, "        Running `evdoublebind-make-config  -g` will generate one.\n\n");
+        }
+        snprintf(buf,1024, "%s/.xkb/symbols/evdoublebind", getenv("HOME"));
+        fprintf(stderr,"Outputing XKB option[evdoublebind:mapping] to:\n    %s\n", buf);
         xkbfile = fopen(buf, "w");
     } else {
-        fprintf(stderr,"Outputing XKB option to: %s\n", settings.xkb_conf_output);
+        fprintf(stderr,"Outputing XKB option[evdoublebind:mapping] to:\n    %s\n",
+                settings.xkb_conf_output);
         xkbfile = fopen(settings.xkb_conf_output, "w");
     }
     if (xkbfile == NULL) {
@@ -450,9 +479,9 @@ kbd : /dev/input/by-id/usb-Logitech_Logitech_G710_Keyboard-event-kbd
 
 Options:
    -a                                    Only Generate Argument File
-   (default: STDOUT)
    -c <evdoublebind_argument_file>       File path
    (default: STDOUT)
+   -g                                    Install Rule Set
    -x <xkb_conf_output>
    (default: '~/.xkb/symbols/evdoublebind')
    -l <xkb_layout>                       Specifies XKB layout
@@ -473,8 +502,13 @@ Settings parse_arguments(Settings &&setting, int argc, char **argv){
     optind = 0;
     char *cvalue = NULL;
     int c;
-    while ((c = getopt (argc, argv, "ahr:m:l:v:o:x:c:")) != -1)
+    bool suppress_no_input_error = false;
+    while ((c = getopt (argc, argv, "gahr:m:l:v:o:x:c:")) != -1)
         switch(c){
+            case 'g':
+                install_xkb_rule();
+                suppress_no_input_error = true;
+                continue;
             case 'a':
                 setting.only_arguments = true;
                 continue;
@@ -504,9 +538,13 @@ Settings parse_arguments(Settings &&setting, int argc, char **argv){
                 continue;
         }
     if (argc - optind < 1) {
-        fprintf(stderr, "No config specfied\n");
-        print_usage();
-        exit(1);
+        if (suppress_no_input_error) {
+            exit(0);
+        } else {
+            fprintf(stderr, "No config specfied\n");
+            print_usage();
+            exit(1);
+        }
     }
     setting.input_conf = argv[optind];
     return setting;

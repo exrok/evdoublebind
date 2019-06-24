@@ -121,7 +121,7 @@ cat evdb.args | while read args; do
 done
 
 # Alternatively you could generate the arguments from the config
-# and pass the directly
+# and pass them directly
 # evdoublebind-make-config basic.conf | while read args; do
 #     sudo ../build/evdoublebind $args &
 # done

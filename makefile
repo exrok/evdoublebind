@@ -1,7 +1,6 @@
 BUILD_DIR ?= ./build
 SRC_DIRS ?= ./src
-
-PREFIX = /usr
+PREFIX ?= /usr
 
 CPPFLAGS += -fno-rtti -fno-exceptions  -fno-threadsafe-statics \
  -pipe -Wconversion-null -O2
@@ -29,8 +28,7 @@ $(BUILD_DIR)/%.cc.o: %.cc
 .PHONY: install
 install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	strip $(BUILD_DIR)/*
-	cp -f $(BUILD_DIR)/* $(DESTDIR)$(PREFIX)/bin/
+	install $(BUILD_DIR)/* $(DESTDIR)$(PREFIX)/bin/
 	chmod 'g+s' $(DESTDIR)$(PREFIX)/bin/evdoublebind
 
 .PHONY: uninstall
