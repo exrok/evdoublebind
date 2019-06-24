@@ -1,4 +1,4 @@
-Evdoublebind, via evdev, provides double bind keys: keys which are overloaded with functional acting as a modifier when held but another key when tapped alone. Although other applications strive for the same core functionality, Evdoublebind is unique in that it...
+Evdoublebind, via evdev, provides double bind keys: keys which are overloaded with functionality acting as a modifier when held but another key when tapped alone. Although other applications strive for the same core functionality, Evdoublebind is unique in that it...
 * Runs at a low level interfacing evdev directly so that it is display server
 agnostic even working in a TTY.
 * The main program is very simple and small, written in less than 200 lines of C code which when
@@ -11,6 +11,31 @@ Evdoublebind has gone through a major refactor to be easier setup the old simple
 ## Further information
 - [Making Low Level Keyboard Hacks Easy to Use](https://i64.dev/low-level-keyboards-hacks-easy-to-use/) June 24, 2019
 - [Evdoublebind and My Ergonomic Key Bindings](https://i64.dev/evdoublebind-introduction/) June 10, 2019
+
+## Installation
+### Compiling from Source
+
+Install dependencies:
+
+* libxkbcommon (for evdoublebind-inspect/-make-config)
+* linux-headers (for <linux/input.h>)
+* musl (optional: for smaller/faster binary)
+
+Run these commands:
+
+```sh
+make
+#or make musl-static
+
+sudo make install
+```
+
+To run install the XKB rule-set with the `evdoublebind:mapping` into the user xkb 
+folder,`~/.xkb`, option run
+
+```sh
+~/install_xkb_rule.sh
+```
 
 ## Usage
 
@@ -67,11 +92,46 @@ evdoublebind-make-config basic.conf | while read args; do
   sudo ../build/evdoublebind $args &
 done
 ```
+### Simple Example Script
+The following the following script will setup capslock as control
+where tapping capslock insert escape. The script works on X11 envoirments where
+setxkbmap is respected, I know it works on i3wm and sway.
+```sh
+#!/bin/sh
+#First install the XKB rule set if havn't yet
+#./install_xkb_rule.sh
 
-## Installation
+ echo 'unused : <FK19> <FK20> <FK21> <FK22> <FK23> <FK24>' > basic.conf
 
-  Todo...
+# find keyboards, THIS MAY FIND TO MANY KEYBOARDS!!! for real setup please
+# run `evdoublebind-inspector` to identify your actual keyboards
+echo "sudo evdoublebind-inspector -k : to get keyboards"
+sudo evdoublebind-inspector -k | awk '{print "kbd:" $1;}' >> basic.conf
+echo '<CAPS> : Control_L   | Escape' >> basic.conf
 
-## Todo
-  
-  Todo...
+# Generate XKB_option will go in `~/.xkb/symbols/evdoublebind` and `evdb.in`.
+evdoublebind-make-config -c evdb.args basic.conf || exit #abort on failure
+
+#make sure no other instances are running
+killall evdoublebind
+
+#Start evdouble-bind
+cat evdb.args | while read args; do
+    evdoublebind $args &
+done
+
+# Alternatively you could generate the arguments from the config
+# and pass the directly
+# evdoublebind-make-config basic.conf | while read args; do
+#     sudo ../build/evdoublebind $args &
+# done
+
+#SET XKB ON X11
+setxkbmap -I$HOME/.xkb -rules 'evdev-doublebind' -option evdoublebind:mapping\
+ -print | xkbcomp -w 2 -I$HOME/.xkb - $DISPLAY
+echo "it is 'normal' for xkbcomp to output some warnings."
+# SET XKB ON SWAY, you'll probably want to specify your keyboard directly
+# for actual use instead of the '*'.
+#swaymsg input '*' xkb_rules evdev-doublebind 
+#swaymsg input '*' xkb_options evdoublebind:mapping
+```

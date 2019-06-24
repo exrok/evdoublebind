@@ -14,7 +14,8 @@ echo '<CAPS> : Control_L   | Escape' >> basic.conf
 evdoublebind-make-config -c evdb.args basic.conf || exit #abort on failure
 
 #make sure no other instances are running
-killall evdoublebind
+sudo killall evdoublebind
+sudo killall evcape
 
 #Start evdouble-bind
 cat evdb.args | while read args; do
@@ -28,6 +29,5 @@ done
 # done
 
 #xkb to use the generated option
-setxkbmap -I$HOME/.xkb -rules 'evdev-doublebind' -option evdoublebind:mapping\
- -print | xkbcomp -w 2 -I$HOME/.xkb - $DISPLAY
-echo "it is 'normal' for xkbcomp to output some warnings."
+swaymsg input '*' xkb_rules evdev-doublebind
+swaymsg input '*' xkb_options evdoublebind:mapping
