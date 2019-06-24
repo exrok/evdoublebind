@@ -83,14 +83,16 @@ void find_keyboard_in(KeyboardList &keyboards, const char * path) {
     struct dirent *dir;
     struct Keyboard inputs[32] = {0}; //12 Slots
     int inputs_len = 0;
-    char buf[512]; //12 Slots
-    char input[256]; //12 Slots
+    char buf[1024]; //12 Slots
     d = opendir(path);
     if (d) {
         while ((dir = readdir(d)) != NULL) {
             if (kbd_suffix(dir->d_name)) {
-                sprintf(buf,"%s%s",path, dir->d_name);
-                if (realpath(buf, input) == NULL) continue;
+                if (snprintf(buf,1024,"%s%s",path, dir->d_name) > 1023) {
+                    continue;
+                }
+                char *input = realpath(buf, NULL);
+                if (input == NULL) continue;
                 if (input[11] == 'e') {
                     int event_number = atoi(input + 16);
                     if (!keyboards.contains_event_number(event_number)) {
@@ -104,6 +106,7 @@ void find_keyboard_in(KeyboardList &keyboards, const char * path) {
                         }
                     }
                 }
+                free(input);
             }
         }
         closedir(d);
