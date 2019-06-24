@@ -7,7 +7,7 @@
 // KEY_TIMEOUT_CONFIG: Number of microseconds before a keypress will not insert
 //   a tap even if press aloned. Usefull when used in graphical applications
 //   with a mouse, setting it too 0 disables it.
-#define KEY_TIMEOUT_CONFIG 200000
+#define KEY_TIMEOUT_CONFIG 220000
 
 
 typedef struct KeyBind {
@@ -75,9 +75,22 @@ const KeyBind *find_keybind(int keycode){
     return NULL;
 }
 
-void map_events(int fd){
+int open_input(char * path) {
+    int fd = open(path, O_RDWR);
+    if (fd < 0) {
+        perror("Error: Opening Keyboard");
+        exit(1);
+    }
+    unsigned int key_repeat[2] = {2048,2048};
+    ioctl(fd, EVIOCSREP, &key_repeat);
+    return fd;
+}
+
+void map_events(char *input_path){
     struct input_event buf[INPUT_BUF_LEN];
     u_int32_t previous_scancode = 0, current_scancode = 0;
+    int fd = open_input(input_path);
+
 #if KEY_TIMEOUT_CONFIG != 0
     time_t last_sec = 0;
     suseconds_t last_usec = 0;
@@ -85,8 +98,18 @@ void map_events(int fd){
     while(1) {
         int rd = read(fd, buf, sizeof(buf));
         if (rd == -1) {
-            perror("Reading Keyboard Input");
-            exit(1);
+            close(fd);
+            //Wait for device initialization
+            for (int i = 0; i < 20; i++) { //Try acessing the path for 2s
+                if (access(input_path, F_OK) != -1) break;
+                usleep(100000);
+            }
+            int fd = open_input(input_path); //Try again maybe device reset.
+            rd = read(fd, buf, sizeof(buf));
+            if (rd != -1) {
+                perror("Error: Opening Keyboard");
+                exit(1);
+            }
         }
         struct input_event *end = buf + (rd / sizeof(struct input_event));
         int after_scancode = 0;
@@ -121,24 +144,16 @@ void map_events(int fd){
         }
     }
 }
-
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        perror("Error: Missing command line argument: config\n");
-        perror("Usage Example: \n  ");
-        perror(argv[0]);
-        perror(" evdoublebind.in\n");
+        perror("\
+Error: Missing Arguments\n\
+Consult `evdoublebind-make-config -h` for config details\n\
+Usage: \n\
+  evdoublebind <Keyboard> <Mapping>");
         exit(1);
     };
-    int found = parse_keymap(argv[2]);
-    int fd = open(argv[1],O_RDWR);
-    if (fd < 0) {
-        exit(0);
-    }
     nice(-20);
-    unsigned int key_repeat[2] = {2048,2048};
-    if (ioctl(fd, EVIOCSREP, &key_repeat) == -1)
-        perror("Warning: Key repeat could not be disabled");
-    map_events(fd);
-    return 0;
+    int found = parse_keymap(argv[2]);
+    map_events(argv[1]);
 }

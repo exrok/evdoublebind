@@ -1,12 +1,12 @@
 Evdoublebind, via evdev, provides double bind keys: keys which are overloaded with functionality acting as a modifier when held but another key when tapped alone. Although other applications strive for the same core functionality, Evdoublebind is unique in that it...
 * Runs at a low level interfacing evdev directly so that it is display server
 agnostic even working in a TTY.
-* The main program is very simple and small, written in less than 200 lines of C code which when
+* The main program is very simple and small, written in C with no dependencies which when
   compiled statically with musl and stripped produces a ~5kb binary on linux. 
-* Introduces as little latency as possible, allowing regular key events to
+* Introduces as little latency as possible, allowing regular key events to be
   processed by system directly without redirection or a virtual input device.
 
-Evdoublebind has gone through a major refactor to be easier setup the old simpler version can be found on it own [branch](https://github.com/exrok/evdoublebind/tree/tiny-over-optimized-version); 
+Evdoublebind has gone through a major refactor to be easier setup the old simpler version can be found on it own [branch](https://github.com/exrok/evdoublebind/tree/tiny-over-optimized-version). 
 
 ## Further information
 - [Making Low Level Keyboard Hacks Easy to Use](https://i64.dev/low-level-keyboards-hacks-easy-to-use/) June 24, 2019
