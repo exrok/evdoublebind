@@ -13,31 +13,38 @@
 typedef struct KeyBind {
     __u16 key;
     __u16 tap_key;
+    __u16 tap_modifier;
 } KeyBind;
 
-static KeyBind KEYMAP[64] = {};
+static KeyBind KEYMAP[64];
 static int  KEYMAP_LEN = 0;
 // Evdoublebind Code.
-
-// Parses something like '42:189,54:190,56:191,57:192,39:193,58:194'
+// Parses something like '42:189,54:190|32,56:191,57:192,39:193,58:194'
 // null terminated.
 int parse_keymap(const char * mapstr) {
     const char *c = mapstr;
-    int len = 0;
     int val = 0;
     while (1) {
         switch (*c) {
             case '\0': //fallthrough
             case ',': //fallthrough
-            case ':':
-                if (len & 1) KEYMAP[len >> 1].tap_key = val;
-                else         KEYMAP[len >> 1].key = val;
+                if (KEYMAP[KEYMAP_LEN].tap_key != 0)
+                    KEYMAP[KEYMAP_LEN].tap_modifier = val;
+                else
+                    KEYMAP[KEYMAP_LEN].tap_key = val;
+                ++KEYMAP_LEN;
                 val = 0;
-                len++;
                 if (*c == '\0') {
-                    KEYMAP_LEN = len >> 1;
                     return KEYMAP_LEN;
                 }
+                break;
+            case ':': //fallthrough
+                KEYMAP[KEYMAP_LEN].key = val;
+                val = 0;
+                break;
+            case '|': //fallthrough
+                KEYMAP[KEYMAP_LEN].tap_key = val;
+                val = 0;
                 break;
             default:
                 if (*c > '9' || *c < '0') {
@@ -48,7 +55,6 @@ int parse_keymap(const char * mapstr) {
         c++;
     }
 }
-
 void perror(const char *str){
     int i = 0;
     for (const char *q = str; *q != '\0'; q++) i++;
@@ -61,12 +67,20 @@ void perror(const char *str){
 #define V_KEY_DOWN 1
 #define V_KEY_REPEAT 2
 
+int tap_mod_key(__u16 key_code, __u16 mod_code, int fd){
+    struct input_event buf[] = {{{0,0}, .type = EV_KEY, .code = mod_code, .value = 1},
+                         {{0,0}, .type = EV_KEY, .code = key_code, .value = 1},
+                         {{0,0}, .type = EV_KEY, .code = key_code, .value = 0},
+                         {{0,0}, .type = EV_KEY, .code = mod_code, .value = 0},
+                         {{0,0}, .type = EV_SYN, .code = SYN_REPORT, .value = 0}};
+    return write(fd, buf, sizeof(buf));
+}
+
 int tap_key(__u16 key_code, int fd){
     struct input_event buf[] = {{{0,0}, .type = EV_KEY, .code = key_code, .value = 1},
                          {{0,0}, .type = EV_KEY, .code = key_code, .value = 0},
                          {{0,0}, .type = EV_SYN, .code = SYN_REPORT, .value = 0}};
-    write(fd, buf, sizeof(buf));
-    return 0;
+    return write(fd, buf, sizeof(buf));
 }
 
 const KeyBind *find_keybind(int keycode){
@@ -74,7 +88,6 @@ const KeyBind *find_keybind(int keycode){
         if(KEYMAP[i].key == keycode) return &KEYMAP[i];
     return NULL;
 }
-
 int open_input(char * path) {
     int fd = open(path, O_RDWR);
     if (fd < 0) {
@@ -138,7 +151,10 @@ void map_events(char *input_path){
 #endif
                 const KeyBind *index = find_keybind(curr->code);
                 if (!index) continue;
-                tap_key(index->tap_key, fd);
+                if (index->tap_modifier)
+                    tap_mod_key(index->tap_key,index->tap_modifier, fd);
+                else
+                    tap_key(index->tap_key, fd);
 
             }
         }

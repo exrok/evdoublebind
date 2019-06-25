@@ -80,36 +80,54 @@ struct Array {
     }
 };
 
+
+char * skip_ws(char * c) {
+    while (*c && (*c == '\t' || *c == ' ')) c++;
+    return c;
+}
+
+struct ArgParser {
+    char * c;
+    char restore = '\0';
+    char * value = NULL; //Current value
+    bool end = false;
+
+    ArgParser(char * c): c{c}{}
+
+    bool next() {
+        if (end == true) return false;
+        value = NULL;
+        if (restore != '\0') *c = restore;
+        c = skip_ws(c);
+        if (*c == '\0') {
+            end = true;
+            return false;
+        }
+        value = c;
+        while (*c && !(*c == '\t' || *c == ' ')) c++;
+        if (*c == '\0') {
+            end = true;
+            return true;
+        }
+        restore = *c;
+        *c = '\0';
+        return true;
+    }
+};
 struct KeyMapping {
-    int keycode;
+    xkb_keycode_t keycode;
     char * hold_map[4];
     char * tap_map[4];
+    xkb_keycode_t tap_raw[2];
 };
 
 int parse_symlevel(char *sym[4], char * sym_str) {
     int count = 0;
     bool hasvalue = false;
-    if (sym_str != NULL) {
-        char *curr = sym_str;
-        while (*curr) {
-            if (*curr == ' ' || *curr == '\t') {
-                *curr = '\0';
-                if (hasvalue) {
-                    sym[count++] = sym_str;
-                    hasvalue = false;
-                    if (count == 4) return 4;
-                }
-            } else {
-                if (!hasvalue) {
-                    sym_str = curr;
-                    hasvalue = true;
-                }
-            }
-            curr++;
-        }
-    }
-    if (hasvalue) {
+    ArgParser args{sym_str};
+    while (args.next()) {
         sym[count++] = sym_str;
+        args.restore = '\0';
         hasvalue = false;
         if (count == 4) return 4;
     }
@@ -117,36 +135,25 @@ int parse_symlevel(char *sym[4], char * sym_str) {
     return count;
 }
 
-int parse_keycode(xkb_keymap *keymap, char * keycode) {
-    char * start = strchr(keycode, '<');
-    if (start == NULL) {
-        return atoi(keycode);
-    } else {
-        start += 1;
-        char * end = strchr(start, '>');
+xkb_keycode_t parse_keycode(xkb_keymap *keymap, char * keycode) {
+    if (keycode == NULL) return -1;
+    if (*keycode == '<') {
+        char * end = strchr(keycode+1, '>');
         if (end != NULL) {
             *end = '\0';
-            int x = xkb_keymap_key_by_name(keymap,start);
+            int x = xkb_keymap_key_by_name(keymap, keycode+1);
             if (x > 7) {
                 *end = '>';
                 return x - 8;
             } else {
-                fprintf(stderr,"CONFIG ERROR: unknown key: <%s>\n", start);
+                fprintf(stderr,"CONFIG ERROR: unknown key: <%s>\n", keycode +1);
                 exit(1);
             }
         }
+    } else {
+        return atoi(keycode) + 8; //Convert from evdev keycode to XKB
     }
     return -1;
-}
-
-int match_keyword(const char * keycode) {
-    while (*keycode) {
-        if (*keycode != ' ' || *keycode != '\t') break;
-        keycode++;
-    }
-    if (strncmp(keycode, "unused", 6) == 0) return 1;
-    if (strncmp(keycode, "kbd", 3) == 0) return 2;
-    return 0;
 }
 
 struct Config {
@@ -155,26 +162,33 @@ struct Config {
     Array<xkb_keycode_t> unused_keys;
 };
 
-char * parse_unused_keys(xkb_keymap *keymap, Config &config, char *buf) {
-    char * last = NULL;
-    while (*buf) {
-        switch (*buf) {
-            case '\n': return buf;
-            case '<': last = buf + 1; break;
-            case '>':
-                *buf = '\0';
-                int x = xkb_keymap_key_by_name(keymap,last);
-                if (x > 7) {
-                    config.unused_keys.push(x);
-                } else {
-                    fprintf(stderr,"CONFIG ERROR: unknown unused key: <%s>\n", last);
-                    exit(1);
-                }
-                break;
+void parse_raw_tap(int line, xkb_keymap *keymap, xkb_keycode_t keys[2], char *arguments) {
+    ArgParser args{arguments};
+    int count = 0;
+    while (args.next()) {
+        xkb_keycode_t keycode = parse_keycode(keymap, args.value);
+        if (keycode < 0) {
+            fprintf(stderr,"CONFIG ERROR[line:%d]: unknown key: %s\n",line, args.value);
+            exit(1);
         }
-        buf++;
+        if (count > 1) {
+            fprintf(stderr,"CONFIG ERROR[line:%d]: to many for raw keys specified, max is 2",line);
+            exit(1);
+        }
+        keys[count++] = keycode;
     }
-    return buf;
+    for (int i = count; i < 2; i++) keys[i] = -1;
+}
+void parse_unused_keys(xkb_keymap *keymap, Config &config, char *arguments) {
+    ArgParser args{arguments};
+    while (args.next()) {
+        xkb_keycode_t keycode = parse_keycode(keymap, args.value);
+        if (keycode < 0) {
+            fprintf(stderr,"CONFIG ERROR: unknown unused key: %s \n", args.value);
+            exit(1);
+        }
+        config.unused_keys.push(keycode);
+    }
 }
 
 void generate_modifier_mapping(FILE * file, const char *keyname, char *syms[4]) {
@@ -219,12 +233,9 @@ char * file_contents( const char *path) {
     close(fd);
     return buffer;
 }
-char * skip_ws(char * c) {
-    while (*c && (*c == '\t' || *c == ' ')) c++;
-    return c;
-}
 
-// Very simple parser for config in with syntax "key | value # comment"
+
+// Very simple parser for config in with syntax "key : value # comment"
 // modifying by config text, inserting null terminations, returns
 // key value pairs from config in declaration order. Trims white space
 // around key and value.
@@ -339,9 +350,11 @@ void generate_xkb_file(xkb_keymap *keymap, Config &config, Settings &settings) {
      fprintf(xkbfile,"xkb_symbols \"mapping\" {\n");
      for (auto & mapping: config.mappings) {
          const char * keyname = xkb_keymap_key_get_name(keymap, mapping.keycode + 8);
-         fprintf(xkbfile,"   replace key <%s> { [ ",  keyname);
-         print_keysyms(xkbfile,mapping.hold_map);
-         fprintf(xkbfile," ] };\n");
+         if (mapping.hold_map[0] != NULL) {
+             fprintf(xkbfile,"   replace key <%s> { [ ",  keyname);
+             print_keysyms(xkbfile,mapping.hold_map);
+             fprintf(xkbfile," ] };\n");
+         }
          if (mapping.tap_map[0] != NULL) {
              if (unused == config.unused_keys.end()) {
                  fprintf(stderr,"ERROR: not enough unused keys specified for config\n");
@@ -373,17 +386,28 @@ void generate_hfile(Config &config, Settings &settings) {
      for (auto &kbd : config.keyboards){
          fprintf(hfile,"%s ", kbd);
          auto unused = config.unused_keys.begin();
+         bool first = true;
          for (auto & mapping: config.mappings) {
              if (mapping.tap_map[0] != NULL) {
                  if (unused == config.unused_keys.end()) {
                      fprintf(stderr,"ERROR: not enough unused keys specified for config\n");
                      exit(1);
                  }
-                 if (unused != config.unused_keys.begin()) {
+                 if (!first) {
                      fprintf(hfile,",");
                  }
+                 first = false;
                  fprintf(hfile,"%d:%d", mapping.keycode, *unused - 8);
                  unused++;
+             } else if (mapping.tap_raw[0] != -1) {
+                 if (!first) {
+                     fprintf(hfile,",");
+                 }
+                 first = false;
+                 fprintf(hfile,"%d:%d", mapping.keycode, mapping.tap_raw[0]);
+                 if (mapping.tap_raw[1] != -1) {
+                     fprintf(hfile,"|%d", mapping.tap_raw[1]);
+                 }
              }
          }
          fprintf(hfile,"\n");
@@ -431,15 +455,31 @@ int gen(Settings &settings) {
         } else if (strcmp(entry.key, "kbd") == 0) {
             config.keyboards.push(entry.value);
         } else {
-            char *tap = strchr(entry.value, '|');
-            if (tap != NULL){
-                *tap = '\0';
-                tap++;
-                auto map = config.mappings.top_new();
-                map->keycode = parse_keycode(keymap, entry.key);
-
-                parse_symlevel(map->hold_map, entry.value);
-                parse_symlevel(map->tap_map, tap);
+            char *symtap_sep = strchr(entry.value, '|');
+            char *evtap_sep = strchr(entry.value, '@');
+            if (symtap_sep && evtap_sep) {
+                fprintf(stderr,"CONFIG ERROR[line:%d]: Both symkey and raw keycode taps specfied.\n",
+                        entry.line);
+                exit(1);
+            }
+            auto map = config.mappings.top_new();
+            map->keycode = parse_keycode(keymap, entry.key);
+            if (symtap_sep != NULL){
+                *symtap_sep = '\0';
+                symtap_sep++;
+                parse_symlevel(map->tap_map, symtap_sep);
+                for (int i = 0; i < 2; i++) map->tap_raw[i] = -1;
+            } else if (evtap_sep != NULL) {
+                *evtap_sep = '\0';
+                evtap_sep++;
+                parse_raw_tap(entry.line, keymap,map->tap_raw, evtap_sep);
+                for (int i = 0; i < 4; i++) map->tap_map[i] = NULL;
+            }
+            int count = parse_symlevel(map->hold_map, entry.value);
+            if (count == 0 && symtap_sep == NULL && evtap_sep == NULL) {
+                fprintf(stderr,"CONFIG ERROR[line:%d]: No mappings Specified\n",
+                        entry.line);
+                exit(1);
             }
         }
     }
