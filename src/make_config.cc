@@ -398,16 +398,16 @@ void generate_hfile(Config &config, Settings &settings) {
                      fprintf(hfile,",");
                  }
                  first = false;
-                 fprintf(hfile,"%d:%d", mapping.keycode, *unused - 8);
+                 fprintf(hfile,"%d:%d", mapping.keycode - 8, *unused - 8);
                  unused++;
              } else if (mapping.tap_raw[0] != -1) {
                  if (!first) {
                      fprintf(hfile,",");
                  }
                  first = false;
-                 fprintf(hfile,"%d:%d", mapping.keycode, mapping.tap_raw[0]);
+                 fprintf(hfile,"%d:%d", mapping.keycode - 8, mapping.tap_raw[0] - 8);
                  if (mapping.tap_raw[1] != -1) {
-                     fprintf(hfile,"|%d", mapping.tap_raw[1]);
+                     fprintf(hfile,"|%d", mapping.tap_raw[1] - 8);
                  }
              }
          }
