@@ -114,6 +114,7 @@ struct ArgParser {
         return true;
     }
 };
+
 struct KeyMapping {
     xkb_keycode_t keycode;
     char * hold_map[4];
@@ -144,7 +145,7 @@ xkb_keycode_t parse_keycode(xkb_keymap *keymap, char * keycode) {
             int x = xkb_keymap_key_by_name(keymap, keycode+1);
             if (x > 7) {
                 *end = '>';
-                return x - 8;
+                return x;
             } else {
                 fprintf(stderr,"CONFIG ERROR: unknown key: <%s>\n", keycode +1);
                 exit(1);
@@ -349,7 +350,7 @@ void generate_xkb_file(xkb_keymap *keymap, Config &config, Settings &settings) {
      fprintf(xkbfile,"partial modifier_keys\n");
      fprintf(xkbfile,"xkb_symbols \"mapping\" {\n");
      for (auto & mapping: config.mappings) {
-         const char * keyname = xkb_keymap_key_get_name(keymap, mapping.keycode + 8);
+         const char * keyname = xkb_keymap_key_get_name(keymap, mapping.keycode);
          if (mapping.hold_map[0] != NULL) {
              fprintf(xkbfile,"   replace key <%s> { [ ",  keyname);
              print_keysyms(xkbfile,mapping.hold_map);
