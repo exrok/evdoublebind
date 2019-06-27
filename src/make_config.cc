@@ -86,17 +86,27 @@ char * skip_ws(char * c) {
     return c;
 }
 
+
+// Space separated argument parser, given a null terminated, char *,
+// will iterate over the space separated arguments setting the value
+// temporally replacing character with a null after each argument
+// ensuring value is either NULL or a null terminated string. The
+// capture function discards the replacement, so the replace character
+// stays a null. Will return false after all the arguments are iterated.
 struct ArgParser {
     char * c;
     char restore = '\0';
-    char * value = NULL; //Current value
+    char * value = NULL; //Current Argument Value in iteration
     bool end = false;
 
     ArgParser(char * c): c{c}{}
 
+    // Set value to the next argument in arguments string
+    // return false when no argument was found because  the
+    // end of the string has been reached.
     bool next() {
-        if (end == true) return false;
         value = NULL;
+        if (end == true) return false;
         if (restore != '\0') *c = restore;
         c = skip_ws(c);
         if (*c == '\0') {
@@ -113,6 +123,14 @@ struct ArgParser {
         *c = '\0';
         return true;
     }
+
+    // Keep the current value as a null terminated string
+    void capture() {
+        if (end == false) {
+            restore = '\0';
+            c++;
+        }
+    }
 };
 
 struct KeyMapping {
@@ -127,8 +145,8 @@ int parse_symlevel(char *sym[4], char * sym_str) {
     bool hasvalue = false;
     ArgParser args{sym_str};
     while (args.next()) {
-        sym[count++] = sym_str;
-        args.restore = '\0';
+        args.capture();
+        sym[count++] = args.value;
         hasvalue = false;
         if (count == 4) return 4;
     }
@@ -180,6 +198,7 @@ void parse_raw_tap(int line, xkb_keymap *keymap, xkb_keycode_t keys[2], char *ar
     }
     for (int i = count; i < 2; i++) keys[i] = -1;
 }
+
 void parse_unused_keys(xkb_keymap *keymap, Config &config, char *arguments) {
     ArgParser args{arguments};
     while (args.next()) {
@@ -468,7 +487,7 @@ int gen(Settings &settings) {
             if (symtap_sep != NULL){
                 *symtap_sep = '\0';
                 symtap_sep++;
-                parse_symlevel(map->tap_map, symtap_sep);
+                int i = parse_symlevel(map->tap_map, symtap_sep);
                 for (int i = 0; i < 2; i++) map->tap_raw[i] = -1;
             } else if (evtap_sep != NULL) {
                 *evtap_sep = '\0';
